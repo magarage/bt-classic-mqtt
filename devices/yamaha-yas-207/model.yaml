@@ -1,0 +1,236 @@
+device_id: yamaha-yas-207
+mqtt_topic_prefix: yamaha-yas-207
+
+device_name: Yamaha YAS-207
+device_model: YAS-207
+device_manufacturer: Yamaha
+
+# ------------------------------------------------------------------
+# Bluetooth connection
+# ------------------------------------------------------------------
+connection:
+  # Packets to send on initial connect (in order)
+  init_sequence:
+    - "0148545320436f6e74"   # "\x01HTS Cont"
+    - "020001"
+
+# ------------------------------------------------------------------
+# Packet framing
+# ------------------------------------------------------------------
+packet:
+  sync: "ccaa"
+  checksum: negate_sum   # (-sum([length, *payload])) & 0xFF
+
+# ------------------------------------------------------------------
+# Commands  (payload hex, optional followup key)
+# ------------------------------------------------------------------
+commands:
+  # Power
+  POWER_ON:           { payload: "40787e" }
+  POWER_OFF:          { payload: "40787f" }
+  POWER_TOGGLE:       { payload: "4078cc" }
+
+  # Input
+  INPUT_HDMI:         { payload: "40784a", followup: INPUT }
+  INPUT_TV:           { payload: "4078df", followup: INPUT }
+  INPUT_ANALOG:       { payload: "4078d1", followup: INPUT }
+  INPUT_BLUETOOTH:    { payload: "407829", followup: INPUT }
+
+  # Volume
+  VOLUME_UP:          { payload: "40781e", followup: VOLUME }
+  VOLUME_DOWN:        { payload: "40781f", followup: VOLUME }
+
+  # Mute
+  MUTE_ON:            { payload: "407ea2", followup: VOLUME }
+  MUTE_OFF:           { payload: "407ea3", followup: VOLUME }
+
+  # Subwoofer
+  SUBWOOFER_UP:       { payload: "40784c", followup: SUBWOOFER }
+  SUBWOOFER_DOWN:     { payload: "40784d", followup: SUBWOOFER }
+
+  # Surround
+  SURROUND_MOVIE:     { payload: "4078d9", followup: SURROUND }
+  SURROUND_MUSIC:     { payload: "4078da", followup: SURROUND }
+  SURROUND_SPORTS:    { payload: "4078db", followup: SURROUND }
+  SURROUND_GAME:      { payload: "4078dc", followup: SURROUND }
+  SURROUND_STEREO:    { payload: "407850", followup: SURROUND }
+  SURROUND_3D:        { payload: "4078c9", followup: SURROUND }
+  SURROUND_TVPROGRAM: { payload: "407ef1", followup: SURROUND }
+  SURROUND_TOGGLE:    { payload: "4078b4" }
+
+  # Clear Voice
+  CLEARVOICE_ON:      { payload: "407e80", followup: SURROUND }
+  CLEARVOICE_OFF:     { payload: "407e82", followup: SURROUND }
+  CLEARVOICE_TOGGLE:  { payload: "40785c" }
+
+  # Bass Extension
+  BASS_EXT_ON:        { payload: "40786e", followup: SURROUND }
+  BASS_EXT_OFF:       { payload: "40786f", followup: SURROUND }
+  BASS_EXT_TOGGLE:    { payload: "40788b" }
+
+# ------------------------------------------------------------------
+# Followup payloads (sent after command to request partial state)
+# ------------------------------------------------------------------
+followups:
+  INPUT:     "0311"
+  VOLUME:    "0312"
+  SUBWOOFER: "0313"
+  SURROUND:  "0315"
+
+# ------------------------------------------------------------------
+# Value maps (used in state packet parsing)
+# ------------------------------------------------------------------
+maps:
+  input_sources:
+    0x00: HDMI
+    0x05: Bluetooth
+    0x07: TV
+    0x0C: Analog
+
+  surround_modes:
+    0x000D: 3D
+    0x000A: TV Program
+    0x0100: Stereo
+    0x0003: Movie
+    0x0008: Music
+    0x0009: Sports
+    0x000C: Game
+
+# ------------------------------------------------------------------
+# State packet parsing
+# Supported field types:
+#   bool        — true if byte == true_value
+#   int         — raw byte value
+#   map         — byte looked up in named map
+#   map_word_be — 2-byte big-endian word looked up in named map
+#   bitmask     — true if (byte & mask) != 0
+# ------------------------------------------------------------------
+state_packets:
+  0x05:   # Full state (13 payload bytes)
+    min_length: 13
+    fields:
+      power:      { offset: 2,  type: bool,        true_value: 0x01 }
+      input:      { offset: 3,  type: map,          map: input_sources }
+      muted:      { offset: 4,  type: bool,         true_value: 0x01 }
+      volume:     { offset: 5,  type: int }
+      subwoofer:  { offset: 6,  type: int }
+      surround:   { offset: 10, type: map_word_be,  map: surround_modes }
+      bass_ext:   { offset: 12, type: bitmask,      mask: 0x20 }
+      clearvoice: { offset: 12, type: bitmask,      mask: 0x04 }
+
+  0x11:   # Input changed (3 payload bytes)
+    min_length: 3
+    fields:
+      input:      { offset: 2,  type: map,          map: input_sources }
+
+  0x12:   # Volume/mute changed (3 payload bytes)
+    min_length: 3
+    fields:
+      volume:     { offset: 2,  type: int }
+
+  0x13:   # Subwoofer changed (3 payload bytes)
+    min_length: 3
+    fields:
+      subwoofer:  { offset: 2,  type: int }
+
+  0x15:   # Surround/bass_ext/clearvoice changed (5 payload bytes)
+    min_length: 4
+    fields:
+      surround:   { offset: 1,  type: map_word_be,  map: surround_modes }
+      bass_ext:   { offset: 3,  type: bitmask,      mask: 0x20 }
+      clearvoice: { offset: 3,  type: bitmask,      mask: 0x04 }
+
+# ------------------------------------------------------------------
+# MQTT command mapping
+# Maps incoming MQTT payload keys to command resolution
+# ------------------------------------------------------------------
+mqtt_commands:
+  # {"power": true} / {"power": false}
+  power:
+    true:  POWER_ON
+    false: POWER_OFF
+
+  # {"muted": true} / {"muted": false}
+  muted:
+    true:  MUTE_ON
+    false: MUTE_OFF
+
+  # {"input": "HDMI"} → looks up input_sources map reversed
+  input:
+    map: input_sources
+    prefix: INPUT_
+
+  # {"sound_mode": "Music"} → looks up surround_modes map reversed
+  sound_mode:
+    map: surround_modes
+    prefix: SURROUND_
+
+  # {"command": "VOLUME_UP"} → direct command name
+  command: direct
+
+# ------------------------------------------------------------------
+# Home Assistant MQTT Discovery entities
+# ------------------------------------------------------------------
+ha_discovery:
+  switches:
+    - name: Power
+      field: power
+      on_cmd:  POWER_ON
+      off_cmd: POWER_OFF
+      icon: mdi:power
+
+    - name: Mute
+      field: muted
+      on_cmd:  MUTE_ON
+      off_cmd: MUTE_OFF
+      icon: mdi:volume-mute
+
+    - name: Bass Extension
+      field: bass_ext
+      on_cmd:  BASS_EXT_ON
+      off_cmd: BASS_EXT_OFF
+      icon: mdi:speaker
+
+    - name: Clear Voice
+      field: clearvoice
+      on_cmd:  CLEARVOICE_ON
+      off_cmd: CLEARVOICE_OFF
+      icon: mdi:microphone
+
+  selects:
+    - name: Input Source
+      field: input
+      options_from: input_sources
+      icon: mdi:import
+
+    - name: Sound Mode
+      field: sound_mode
+      options_from: surround_modes
+      icon: mdi:equalizer
+
+  buttons:
+    - name: Volume Up
+      cmd: VOLUME_UP
+      icon: mdi:volume-plus
+
+    - name: Volume Down
+      cmd: VOLUME_DOWN
+      icon: mdi:volume-minus
+
+    - name: Subwoofer Up
+      cmd: SUBWOOFER_UP
+      icon: mdi:speaker
+
+    - name: Subwoofer Down
+      cmd: SUBWOOFER_DOWN
+      icon: mdi:speaker
+
+  sensors:
+    - name: Volume
+      field: volume
+      unit: "%"
+      icon: mdi:volume-high
+
+    - name: Subwoofer Level
+      field: subwoofer
+      icon: mdi:speaker-wireless

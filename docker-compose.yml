@@ -1,0 +1,22 @@
+services:
+  bt-classic-mqtt:
+    image: ghcr.io/magarage/bt-classic-mqtt:latest
+    container_name: bt-classic-mqtt
+    restart: unless-stopped
+
+    # Required for Bluetooth socket access
+    network_mode: host
+    privileged: true
+
+    volumes:
+      # Share host BlueZ DBus socket for BT connection
+      - /var/run/dbus:/var/run/dbus
+
+    environment:
+      BT_MAC:         ${BT_MAC}
+      CONFIG:         ${CONFIG:-devices/yamaha-yas-207/model.yaml}
+      MQTT_HOST:      ${MQTT_HOST}
+      MQTT_PORT:      ${MQTT_PORT:-1883}
+      MQTT_USERNAME:  ${MQTT_USERNAME:-}
+      MQTT_PASSWORD:  ${MQTT_PASSWORD:-}
+      LOG_LEVEL:      ${LOG_LEVEL:-INFO}
